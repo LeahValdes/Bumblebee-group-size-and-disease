@@ -1,0 +1,910 @@
+---
+title: "Group.Size.Rmk"
+author: "Leah"
+date: "2024-04-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r Initialize}
+
+library(DHARMa)
+library(dplyr)
+library(ggpubr)
+library(nlme)
+library(car)
+library("cowplot")
+library(gridExtra)
+library(emmeans)
+library(logistf)
+library(ggplot2)
+library(lme4)
+library(readxl)
+library(scales)
+library(survival)
+library(survminer)
+library(glmmTMB)
+
+```
+
+## Figure 1: Data
+
+```{r Figure1, echo=FALSE}
+#####################
+# 1. Initialisation #
+#####################
+# excluding 3a, 4a, 4b, 5a, 6a because of crithidia contamination in control colonies -> termination 
+# excluding 5b, 45, control because 5b, 45, control died of starvation when feeder became detached from cage
+# including 1a, 3b, 5b (n=3), 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a, 10a (n=11-12)
+
+dat <- read.csv("Death.csv")
+
+# Remove the microcolony where all bees starved to death.
+dat = dplyr::filter(dat, Microcolony!="5clean45")
+
+# Fix some small inconsistencies.
+# For 7bclean45 Week 3, (Dead,Alive) = (10,34), which doesn't add to 45.
+# Let's assume that the missing bee escaped and is alive.
+dat$Alive[dat$Microcolony=="7bclean45" & dat$Week==3] = 35
+# For 7cClean15, (Dead,Alive) = (1,14) for Weeks 1 and 2,
+# and (0,15) for Week 3.
+# Let's ignore the extra alive bee in Week 3.
+dat$Dead[dat$Microcolony=="7cClean15" & dat$Week==3] = 1
+dat$Alive[dat$Microcolony=="7cClean15" & dat$Week==3] = 14
+
+dat <- subset(dat, Microcolony != "5clean45")
+
+# Match "Colony" of each control to "Colony" of the paired treatments,
+# since we already have the variable "Crithidia" to specify inoculation status.
+dat$Colony[dat$Colony=="1clean"] = "1a"
+dat$Colony[dat$Colony=="3clean"] = "3b"
+dat$Colony[dat$Colony=="5clean"] = "5b"
+dat$Colony[dat$Colony=="6clean"] = "6b"
+
+# From first submission:
+# Let's work only with "complete" colonies that have all four treatments.
+#complete_colonies = c("1a", "3b", "6b", "7a", "7b", "7c", "8a", "8b", "8c","9a","10a")
+#dat = dplyr::filter(dat, Colony %in% complete_colonies)
+
+# exclude colonies with contamination but include other colonies missing matched pairs due to technical problems (5b)
+include_colonies = c("1a", "3b", "5b", "6b", "7a", "7b", "7c", "8a", "8b", "8c","9a","10a")
+dat = dplyr::filter(dat, Colony %in% include_colonies)
+
+
+# Convert factor variables into factors.
+# But before that, keep a copy of the numerical version of "Size" as "Size_num".
+dat$Size_num = dat$Size
+dat$Size = as.factor(dat$Size)
+dat$Crithidia = as.factor(dat$Crithidia)
+dat$Trial = as.factor(dat$Trial)
+dat$Biobest = as.factor(dat$Biobest)
+dat$Microcolony = as.factor(dat$Microcolony)
+dat$Colony = as.factor(dat$Colony)
+
+# Create a subset corresponding to Week 3 data.
+# This will be used when assessing mortality at the end.
+dat_3 = dplyr::filter(dat, Week==3)
+
+#################################
+# 2. Preparing "long form" data #
+#################################
+# This is required for Cox and parametric survival models.
+
+long_dead_dat = c()
+long_alive_dat = c()
+
+for(Mic in unique(dat$Microcolony)){
+  # Create a subset corresponding to the current microcolony.
+  dat_Mic = dplyr::filter(dat, Microcolony==Mic)
+  dat_Mic_3 = dplyr::filter(dat_Mic, Week==3)
+  
+  # Right now, "Dead" is cumulative.
+  # Here, we create a new column that gives the number that died each week.
+  # First, make sure the rows in dat_Mic are ordered by weeks.
+  dat_Mic = dat_Mic[order(dat_Mic$Week),]
+  # This line should then give the number that died each week.
+  dat_Mic$Dead_week = dat_Mic$Dead - c(0, dat_Mic$Dead[-nrow(dat_Mic)])
+
+  # Now create the long form data.
+  long_dead_dat =  rbind(long_dead_dat,
+                         dat_Mic[rep(seq_len(nrow(dat_Mic)), dat_Mic$Dead_week), c("Trial", "Week", "Biobest", "Colony", "Microcolony", "Size", "Crithidia")])
+  long_alive_dat = rbind(long_alive_dat,
+                         dat_Mic_3[rep(1, dat_Mic_3$Alive), c("Trial", "Week", "Biobest", "Colony", "Microcolony", "Size", "Crithidia")])
+}
+long_dead_dat$Status_dead = 1
+long_alive_dat$Status_dead = 0
+long_dat = rbind(long_dead_dat, long_alive_dat)
+
+caPalette <- c("#0072B2", "#D55E00")
+
+```
+
+#### Survival Stats
+```{r SurvivalStats}
+
+# Cox survival models.
+model_cox = coxph(Surv(Week,Status_dead) ~ Size*Crithidia + Colony, dat=long_dat)
+summary(model_cox)
+
+# Test the cox proportional hazards assumption
+cox.zph(model_cox)
+# Interpreting the output.
+# - Note that for all the fitted coefficients below, a positive estimate means
+#   higher mortality, since it means that the hazard rate is higher.
+#
+# - "ColonyXX" is the difference between Colony XX and Colony 1a for small
+#   control colonies.
+#
+# - "Size45" is the difference between large and small control colonies.
+#
+# - "CrithidiaInoculated" is the difference between small inoculated and 
+#   small control colonies.
+#
+# - "Size45:CrithidiaInoculated" is the ADDITIONAL difference between large
+#   inoculated and large control colonies, on top of "CrithidiaInoculated".
+#   This is the one telling us that colony size affects the difference in
+#   mortality between control and inoculated colonies.
+
+# Contrast tests 
+# Wee Hao: This directly supports our claim that disease affects survival for large colonies. 
+# A significant interaction does tell us that disease effects are different between small and large colonies, 
+# but it does not directly support our claim.
+
+pairs(emmeans(model_cox, ~ Crithidia|Size))
+
+# with bonferroni correction 
+emm <- emmeans(model_cox, ~ Crithidia|Size)
+summary(pairs(emm), by=NULL, adjust="bonferroni")
+
+# GLMM for mortality at the end (Week 3). 
+model_glmer = glmer(cbind(Dead,Alive) ~ Size*Crithidia + (1|Colony), dat=dat_3, family="binomial")
+
+summary(model_glmer)
+
+# contrast tests, only looked at effect of inoculation within each size
+emmeans(model_glmer, specs=pairwise ~ Crithidia|Size, type="response")
+
+# contrast tests with bonferroni correction 
+emm1 <- emmeans(model_glmer, ~ Crithidia|Size)
+summary(pairs(emm1), by=NULL, adjust = "bonferroni")
+
+```
+
+
+#### Figure 1
+```{r Figure1}
+
+#   Control+45: n=10
+#   Control+15: n=12
+#   Crithidia+45: n=12
+#   Critidia+15: n=12
+
+fit <- survfit(Surv(Week,Status_dead) ~ Size + Crithidia, data = long_dat)
+p1 <- ggsurvplot(fit, color="Crithidia", linetype="Size", palette = caPalette, 
+           conf.int = TRUE, xlab = "Week", legend = "right")
+
+# This doesn't work for some reason if I specify "FigureS1," 
+#   but works if I save default most recent plot, so that's what it's doing
+ggsave(file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/Fig1a.tiff", 
+       width=6, height=5.5)
+
+# Boxplot showing proportion dead at end of experiment
+# Improved from first submission by adding jitter so points can be clearly differentiated 
+# Also changed y axis scale to allow negative jitter height and to show full scale, 0-1.0
+p2 <- ggplot(data=dat_3, aes(x=Size, y=Fraction.Dead, fill=Crithidia)) + 
+  geom_boxplot(outlier.shape=NA) + scale_fill_manual(values=caPalette) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.3, jitter.height = 0.05)) + ylim(-0.05,1) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+   labs(y="Proportion Dead", tag = "(b)") + labs(fill="Treatment") + 
+  cowplot::theme_cowplot() + theme(legend.position = c(0.65, 0.9)) 
+
+
+ggsave(p2, file = 
+         "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/Fig1b.tiff", 
+       width=4.5, height=5.5, bg="white")
+
+
+```
+
+#### Figure S1
+
+```{r S1}
+
+#   Control+45: n=10
+#   Control+15: n=12
+#   Crithidia+45: n=12
+#   Critidia+15: n=12
+
+# Data from 1a, control is missing for week 2, but present for week1 and week3 
+# All groups have 11 points except control large and control small, which each have 10 points
+FigureS1 <- ggplot(data=dat, 
+       aes(x=Week, y=Fraction.Dead, color=Crithidia, pch=Size)) +
+  geom_point(size=2, position=position_jitterdodge(jitter.width=0.1, jitter.height=0.05, dodge.width=0.5)) +
+  geom_smooth(method="glm", method.args=list(family="binomial"),
+              aes(x=Week, y=Fraction.Dead, group=interaction(Size, Crithidia), lty=Size, weight=Size_num), se=F) +
+  labs(y = "Proportion Dead", color="Treatment") + 
+  scale_colour_manual(values=caPalette) +
+  scale_linetype(labels = c("Small (15 bees)", "Large (45 bees)")) +
+  scale_shape_discrete(labels = c("Small (15 bees)", "Large (45 bees)")) +
+  theme(plot.title = element_text(face = "bold", size = 12),
+        panel.grid = element_blank()) +
+  cowplot::theme_cowplot()
+
+
+ggsave(FigureS1, file = 
+         "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/FigS1.tiff", 
+       width=6, height=5.5, bg="white")
+
+
+```
+
+## Figure 2: Data
+
+```{r Figure2, echo=FALSE}
+# excluding 3a, 4a, 4b, 5a, 6a because of crithidia contamination in control colonies -> termination 
+# excluding 1a, 45, control because i forgot to take final measurements for it
+# excluding 5b, 45, control because 5b, 45, control died of starvation when feeder became detached from cage
+# including 1a, 3b, 5b, 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a, 10a (n=10)
+#     control+45: n=10 
+#     control+15, crithidia+45, crithidia+15: n=12
+
+dat <- read.csv("Nests.csv")
+
+# Match "Colony" of each control to "Colony" of the paired treatments,
+# since we already have the variable "Crithidia" to specify inoculation status.
+dat$Colony[dat$Colony=="1clean"] = "1a"
+dat$Colony[dat$Colony=="3clean"] = "3b"
+dat$Colony[dat$Colony=="5clean"] = "5b"
+dat$Colony[dat$Colony=="6clean"] = "6b"
+
+include_colonies = c("1a", "3b", "5b", "6b", "7a", "7b", "7c", "8a", "8b", "8c","9a","10a")
+dat = dplyr::filter(dat, Colony %in% include_colonies)
+
+# create columns with per capita data transformation 
+dat$Per_Capita_HoneyPots <- (dat$Honey_Pots / dat$Size)
+dat$Per_Capita_Pupae <- (dat$Egg_Cells / dat$Size)
+dat$Per_Capita_Males <- (dat$Males / dat$Size)
+
+dat$Size <- as.factor(dat$Size)
+dat$Inoculated = as.factor(dat$Inoculated)
+dat$Biobest = as.factor(dat$Biobest)
+dat$Colony = as.factor(dat$Colony)
+
+# color palette for figures
+caPalette <- c("#0072B2", "#D55E00")
+
+```
+####Performance Stats
+```{r PerformanceStats}
+###################################
+# TOTAL NEST WEIGHT MODEL
+###################################
+
+weight_model <- lmer(log(Nest_Weight) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(weight_model)
+Anova(weight_model)
+
+# without interaction, because interaction was not significant
+weight_model2 <- lmer(log(Nest_Weight) ~ Size + Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(weight_model2)
+Anova(weight_model2)
+
+# CHECKING ASSUMPTIONS: Normality and Homogenous Residuals
+# check for normality of residuals (not response variable)
+ggqqplot(residuals(weight_model))
+
+# test if residuals are homogenous; you want to see no particular pattern 
+plot(predict(weight_model), residuals(weight_model))
+
+# contrast tests, only looked at effect of inoculation within each size
+emmeans(weight_model, specs=pairwise ~ Inoculated|Size, type="response")
+
+# with bonferonni correction 
+emm1 <- emmeans(weight_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm1), by = NULL, adjust = "bonferroni")
+
+###################################
+# TOTAL PUPAE + MALE MODEL
+###################################
+
+fitness_model <- lmer(log(EggMale) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(fitness_model)
+Anova(fitness_model)
+
+# without interaction because it was not significant 
+fitness_model2 <- lmer(log(EggMale) ~ Size + Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(fitness_model2)
+Anova(fitness_model2)
+
+# testing for normality and homogenous residuals
+ggqqplot(residuals(fitness_model))
+plot(predict(fitness_model), residuals(fitness_model))
+
+# contrast tests, only look at effect of inoculation within each size
+emmeans(fitness_model, specs=pairwise ~ Inoculated|Size, type="response")
+
+# with bonferonni correction 
+emm2 <- emmeans(fitness_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm2), by = NULL, adjust = "bonferroni")
+```
+#### Per capita Stats 
+```{r PercapPerformance, echo=FALSE}
+##########################
+# PER CAPITA NEST WEIGHT MODEL
+##########################
+
+percap_weight_model <- lmer(log(Per_Capita_Weight) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(percap_weight_model)
+Anova(percap_weight_model)
+
+# without interaction to report fixed effects because interaction was not significant
+percap_weight_model2 <- lmer(log(Per_Capita_Weight) ~ Size+Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(percap_weight_model2)
+Anova(percap_weight_model2)
+
+# CHECKING ASSUMPTIONS: Normality and Homogenous Residuals
+# check for normality of residuals (not response variable)
+# normality for linear models can be eyeballed - shapiro test is often too precise (-Erika)
+ggqqplot(residuals(percap_weight_model))
+
+# test if residuals are homogenous; you want to see no particular pattern 
+plot(predict(percap_weight_model), residuals(percap_weight_model))
+
+# contrast tests, only looked at effect of inoculation within each size
+emmeans(percap_weight_model, specs=pairwise ~ Inoculated|Size, type="response")
+
+# with bonferonni correction 
+emm3 <- emmeans(percap_weight_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm3), by = NULL, adjust = "bonferroni")
+
+##########################
+# PER CAPITA PUPAE+MALE MODEL
+##########################
+
+percap_eggmale_model <- lmer(log(Per_Capita_EggMale) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(percap_eggmale_model)
+Anova(percap_eggmale_model)
+
+percap_eggmale_model2 <- lmer(log(Per_Capita_EggMale) ~ Size+Inoculated + (1 | Colony), data = dat, REML = FALSE)
+summary(percap_eggmale_model2)
+Anova(percap_eggmale_model2)
+
+# CHECKING ASSUMPTIONS: Normality and Homogenous Residuals
+ggqqplot(residuals(percap_eggmale_model))
+# test if residuals are homogenous; you want to see no particular pattern 
+plot(predict(percap_eggmale_model), residuals(percap_eggmale_model))
+
+# contrast tests, only looked at effect of inoculation within each size
+emmeans(percap_eggmale_model, specs=pairwise ~ Inoculated|Size, type="response")
+
+# with bonferonni correction 
+emm4 <- emmeans(percap_eggmale_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm4), by = NULL, adjust = "bonferroni")
+
+```
+
+
+#### Figure 2
+```{r Figure2}
+###################################
+# FIGURES
+###################################
+# improved all figures from first submission by using jitterdodge to make points discernible 
+
+# total weight
+weight <- ggplot(dat, aes(x=Size, fill=Inoculated, y=Nest_Weight)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + ylim(0,80) +
+  labs(tag = "(a)") +
+  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Total\n Nest Weight (g)", x="Colony Size") + labs(fill="Treatment") + 
+  cowplot::theme_cowplot()
+
+# total reproductive output
+fitness <- ggplot(dat, aes(x=Size, fill=Inoculated, y=EggMale)) +
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + 
+               labs(fill="Inoculated") + ylim(0,180) + labs(tag = "(b)") +
+  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Total\n No. Pupae + Males", x="Colony Size") + labs(fill="Treatment") + 
+  cowplot::theme_cowplot()
+
+# per capita weight
+percap_weight <- ggplot(dat, aes(x=Size, fill=Inoculated, y=Per_Capita_Weight)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + ylim(0,2.5)+
+  labs(tag = "(c)") +
+  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Per Capita\n Nest Weight (g)", x="Colony Size") + labs(fill="Treatment") + 
+  cowplot::theme_cowplot()
+
+# per capita reproductive output
+percap_eggmale <- ggplot(dat, aes(x=Size, fill=Inoculated, y=Per_Capita_EggMale)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + ylim(0,5.7) +
+  labs(tag = "(d)") +
+  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_bw() + labs(y="Per Capita\n No. Pupae + Males", x="Colony Size") + labs(fill="Treatment") + cowplot::theme_cowplot()
+
+
+Figure2 <- ggarrange(weight,fitness,percap_weight,percap_eggmale,nrow=2,ncol=2)
+
+ggsave(Figure2, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/Fig2.jpg", 
+       width=10, height=8, bg="white")
+
+```
+
+#### Supp Perfm Stats
+```{r SuppPerformanceStats}
+###################################
+# statistics to add to supplemental figures
+###################################
+
+honeypot_model <- lmer(log(Honey_Pots) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+
+summary(honeypot_model)
+Anova(honeypot_model)
+
+# CHECKING ASSUMPTIONS: Normality and Homogenous Residuals
+ggqqplot(residuals(honeypot_model))
+plot(predict(honeypot_model), residuals(honeypot_model))
+
+# Contrast tests
+emm.hp <- emmeans(honeypot_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm.hp), by = NULL, adjust = "bonferroni")
+
+###########
+
+percap_honeypot_model <- lmer(log(Per_Capita_HoneyPots) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+
+summary(percap_honeypot_model)
+Anova(percap_honeypot_model)
+
+# CHECKING ASSUMPTIONS: Normality and Homogenous Residuals
+ggqqplot(residuals(percap_honeypot_model))
+plot(predict(percap_honeypot_model), residuals(percap_honeypot_model))
+
+emm.hp.pc <- emmeans(percap_honeypot_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm.hp.pc), by = NULL, adjust = "bonferroni")
+
+###########
+
+# How should we deal with these data? can't log transform "Males" because there are 0 values; could do negative binomial and check for zero inflation (glmmTMB)
+male_model<- lmer(log(Males+1) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+
+summary(male_model)
+Anova(male_model)
+
+ggqqplot(residuals(male_model))
+plot(predict(male_model), residuals(male_model))
+
+emm.male <- emmeans(male_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm.male), by = NULL, adjust = "bonferroni")
+
+###########
+
+percap_male_model <- lmer(sqrt(Per_Capita_Males) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+
+summary(percap_male_model)
+Anova(percap_male_model)
+
+ggqqplot(residuals(percap_male_model))
+plot(predict(percap_male_model), residuals(percap_male_model))
+
+emm.male.pc <- emmeans(percap_male_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm.male.pc), by = NULL, adjust = "bonferroni")
+
+###########
+
+pupae_model <- lmer(log(Egg_Cells) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+
+summary(pupae_model)
+Anova(pupae_model)
+
+ggqqplot(residuals(pupae_model))
+plot(predict(pupae_model), residuals(pupae_model))
+
+emm.pupae <- emmeans(pupae_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm.pupae), by = NULL, adjust = "bonferroni")
+
+###########
+
+pupae_model <- lmer(log(Egg_Cells) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+
+summary(pupae_model)
+Anova(pupae_model)
+
+ggqqplot(residuals(pupae_model))
+plot(predict(pupae_model), residuals(pupae_model))
+
+emm.pupae <- emmeans(pupae_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm.pupae), by = NULL, adjust = "bonferroni")
+
+###########
+
+percap_pupae_model <- lmer(log(Per_Capita_Pupae) ~ Size*Inoculated + (1 | Colony), data = dat, REML = FALSE)
+
+summary(percap_pupae_model)
+Anova(percap_pupae_model)
+
+ggqqplot(residuals(percap_pupae_model))
+plot(predict(percap_pupae_model), residuals(percap_pupae_model))
+
+emm.pupae <- emmeans(pupae_model, ~ Inoculated|Size, type="response")
+summary(pairs(emm.pupae), by = NULL, adjust = "bonferroni")
+
+
+```
+#### Figure S2
+
+```{r FigureS2}
+
+
+# Honeypots
+# Total number of honeypots
+honeypot <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Honey_Pots)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Total\n No. Honey Pots", x="Colony Size") + cowplot::theme_cowplot() + 
+  labs(tag = "(e)", fill="Treatment")
+
+# Per capita number of honeypots
+honeypot_percap <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Per_Capita_HoneyPots)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Per Capita\n No. Honey Pots", x="Colony Size") + cowplot::theme_cowplot() + 
+  labs(tag = "(f)", fill="Treatment")
+
+##############################################################################################
+
+# Pupae
+# Total number of pupae
+pupa <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Egg_Cells)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Total\n No. Pupae", x="Colony Size") + cowplot::theme_cowplot() + 
+  labs(tag = "(a)", fill="Treatment")
+
+# Per capita number of pupae
+pupa_percap <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Per_Capita_Pupae)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Per Capita\n No. Pupae", x="Colony Size") + cowplot::theme_cowplot() + 
+  labs(tag = "(b)", fill="Treatment")
+
+################################################################################################
+
+# Males
+# Total number of males
+male <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Males)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Total\n No. Males", x="Colony Size") + cowplot::theme_cowplot() + 
+  labs(tag = "(c)", fill="Treatment") 
+
+# Per capita number of males 
+male_percap <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Per_Capita_Males)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+  geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme_light() + labs(y="Per Capita\n No. Males", x="Colony Size") + cowplot::theme_cowplot() + 
+  labs(tag = "(d)", fill="Treatment") 
+
+
+####################################################################################
+
+FigureS2 <- ggarrange(pupa, pupa_percap, male, male_percap, honeypot, honeypot_percap, ncol=2, nrow=3)
+
+ggsave(FigureS2, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/FigS2.tiff", 
+       width=10, height=10, bg="white")
+
+
+```
+
+## Figure 3: Data
+
+```{r Figure3, echo=FALSE}
+#####################
+# 1. Initialisation #
+#####################
+# exclude colonies matched with contaminated control colonies
+# because we can't rule out that transmission was driven by contamination 
+# including: 10a, 1a, 3b, 5b, 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a  (n=12)
+dat <- read.csv("Colony_Proportion.csv")
+
+# Convert factor variables into factors.
+# But before that, keep a copy of the numerical version of "Size" as "Size_num".
+dat$Size_num = dat$Size
+dat$Size = as.factor(dat$Size)
+dat$Trial = as.factor(dat$Trial)
+dat$Biobest = as.factor(dat$Biobest)
+dat$Micro = as.factor(dat$Micro)
+dat$Colony = as.factor(dat$Colony)
+
+# Create columns relevant to infection proportion, used for the plots.
+dat$Screened = dat$Infected + dat$Healthy
+dat$Infected_Prop = dat$Infected / dat$Screened
+
+# exclude colonies with contamination but include other colonies missing matched pairs due to technical problems (5b) - no +crithidia colonies had technical issues
+include_colonies = c("1a", "3b", "5b", "6b", "7a", "7b", "7c", "8a", "8b", "8c","9a","10a")
+dat = dplyr::filter(dat, Colony %in% include_colonies)
+
+
+# Create a subset corresponding to Week 3 data.
+# This will be used when assessing infection at the end.
+dat_3 = dplyr::filter(dat, Week==3)
+
+caPalette <- c("#0072B2", "#D55E00", "#E69F00", "#CC79A7")
+
+```
+
+#### Prevalence Stats
+
+```{r PrevalenceStats}
+###############################################
+# Models for infection at the end (Week 3) #
+###############################################
+
+# Mixed model 
+glmer_week3 = glmer(cbind(Infected,Healthy) ~ Size + (1|Colony), dat=dat_3, family="binomial")
+summary(glmer_week3)
+
+ggqqplot(residuals(glmer_week3))
+# test if residuals are homogenous; you want to see no particular pattern 
+plot(predict(glmer_week3), residuals(glmer_week3))
+
+###################################
+# Models for weekly infection. #
+###################################
+
+# The goal is to see if the slope is steeper for a larger colony.
+# In other words, we want to see if Week:Size is significant. (it's not)
+
+# Mixed model version.
+glmer_weekly = glmer(cbind(Infected,Healthy) ~ Week*Size + (1|Colony), data=dat, family="binomial")
+summary(glmer_weekly)
+
+ggqqplot(residuals(glmer_weekly))
+# test if residuals are homogenous; you want to see no particular pattern 
+plot(predict(glmer_weekly), residuals(glmer_weekly))
+
+```
+
+#### Figure 3
+
+```{r Figure3}
+
+# exclude colonies matched with contaminated control colonies
+# because we can't rule out that transmission was driven by contamination 
+# including: 10a, 1a, 3b, 5b, 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a  (n=12)
+
+# Weekly infection, pooled across colony.
+# Improved from first submission by adding jitter to make points clearly different
+# Decreased point size because I think it makes it easier to see different points 
+p1 <- ggplot(data=dat,
+             aes(x=Week, y=Infected_Prop, color=Size)) +
+  geom_point(size=2, position=position_jitterdodge(jitter.width=0.2, jitter.height=0.05, dodge.width=0.25)) +
+ geom_smooth(method="glm", method.args=list(family="binomial"),
+              aes(x=Week, y=Infected_Prop, group=Size, weight=Screened), se=F) +
+  labs(y = "Proportion Infected", tag = "(a)") + 
+  scale_colour_manual(values=caPalette) + 
+  theme(plot.title = element_text(face = "bold", size = 12)) +
+  cowplot::theme_cowplot()
+
+# Improved from first submission by adding jitter to make points clearly different
+# Had to change yaxis slightly so jitter height wouldn't be outside bounds
+p2 <- ggplot(data=dat_3, aes(x=Size, y=Infected_Prop, fill=Size)) + 
+  geom_boxplot(show.legend=FALSE, outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.3, jitter.height = 0.05), show.legend = FALSE) + 
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) + ylim(-0.05,1.05) +
+  theme_light() + labs(y="Proportion Infected", tag = "(b)") + labs(fill="Size") +
+  cowplot::theme_cowplot()
+
+Figure3 <- ggarrange(p1,p2,nrow = 1,ncol=2)
+
+ggsave(Figure3, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/Fig3.tiff", 
+       width=10, height=5.5, bg="white")
+
+```
+
+#### Figure S3
+
+```{r FigureS3}
+
+# exclude colonies matched with contaminated control colonies
+# because we can't rule out that transmission was driven by contamination 
+# including: 10a, 1a, 3b, 5b, 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a  (n=12)
+
+# Weekly infection, separated by colony.
+FigureS3 <- ggplot(data=dat, 
+                   aes(x=as.factor(Week), y=Infected_Prop, color=Size)) +
+  geom_point(size=2) +
+  geom_line(aes(group=Micro)) +
+  facet_wrap("Colony", ncol=5) + 
+  labs(y = "Proportion Infected", x = "Week after inoculation") +
+  scale_colour_manual(values=caPalette) + 
+  theme_bw() + 
+  theme(plot.title = element_text(face = "bold", size = 12), 
+        panel.grid = element_blank())
+
+ggsave(FigureS3, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/FigS3.tiff", width=8, height=5.5, bg="white")
+
+```
+
+## Figure 4: Data
+
+```{r Figure4, echo=FALSE}
+
+
+# exclude colonies matched with contaminated control colonies
+# because we can't rule out that transmission was driven by contamination 
+# including: 10a, 1a, 3b, 5b, 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a  (n=12)
+
+dat <- read.csv("Dissections.csv")
+# Filter out male bees.
+dat = dat[dat$BeeID!="male",]
+dat.all <- dat
+# Filter out uninfected bees.
+dat = dat[dat$Crithidia>0,]
+
+
+# Convert factor variables into factors.
+# But before that, keep a copy of the numerical version of "Size" as "Size_num".
+dat$Size_num = dat$Size
+dat$Size = as.factor(dat$Size)
+dat$Trial = as.factor(dat$Trial)
+dat$Biobest = as.factor(dat$Biobest)
+dat$Micro = as.factor(dat$Micro)
+dat$Colony = as.factor(dat$Colony)
+
+dat.all$Size_num = dat.all$Size
+dat.all$Size = as.factor(dat.all$Size)
+dat.all$Trial = as.factor(dat.all$Trial)
+dat.all$Biobest = as.factor(dat.all$Biobest)
+dat.all$Micro = as.factor(dat.all$Micro)
+dat.all$Colony = as.factor(dat.all$Colony)
+
+# exclude colonies with contamination but include other colonies missing matched pairs due to technical problems (5b) - no +crithidia colonies had technical issues
+include_colonies = c("1a", "3b", "5b", "6b", "7a", "7b", "7c", "8a", "8b", "8c","9a","10a")
+dat = dplyr::filter(dat, Colony %in% include_colonies)
+dat.all = dplyr::filter(dat.all, Colony %in% include_colonies)
+
+
+# Filter out bees without marginal cell measurements
+# Because only bees with marginal cell measurements were included in analysis (marginal cell is a random effect)
+dat_figures <- dat
+dat <- na.omit(dat)
+dat_figures.all <- dat.all
+dat.all <- na.omit(dat.all)
+
+caPalette <- c("#0072B2", "#D55E00")
+
+```
+
+#### Intensity Stats
+
+```{r IntensityStats}
+
+#############
+# 3. Models #
+#############
+
+# Comparing infection intensity between small and large colonies
+# Main effects: Colony size and body size (marginal cell length)
+# Truncated negative binomial distribution to account for filtering out uninfected bees.
+model_nb_glmmTMB1 = glmmTMB(Crithidia ~ Size + Marginal_Cell + (1|Colony), data=dat, family=truncated_nbinom2)
+summary(model_nb_glmmTMB1)
+drop1(model_nb_glmmTMB1, test="Chisq")
+
+# Is a truncated negative binomial distribution appropriate? Are the residuals well-behaved? Yes
+plot( simulateResiduals(model_nb_glmmTMB1) )
+
+##################
+
+# Comparing body size (marginal cell) between small and large colonies
+# Using lmm because data are ~normally distributed
+bodysize_model = lmer(Marginal_Cell ~ Size + (1|Colony), data = dat.all)
+summary(bodysize_model)
+Anova(bodysize_model)
+
+# testing model assumptions: normality and homogeneity of residuals
+plot(simulateResiduals(bodysize_model))
+ggqqplot(residuals(bodysize_model))
+
+
+```
+
+#### Figure 4
+
+```{r Figure4}
+
+# exclude colonies matched with contaminated control colonies
+# because we can't rule out that transmission was driven by contamination 
+# including: 10a, 1a, 3b, 5b, 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a  (n=12)
+
+# "Crithidia" is the number of cells counted in 5 medium squares of haematocytometer
+# 5 squares contain 0.5 uL (one square contains 0.1 uL)
+# So I divided Crithidia/0.5 = xx Crithidia/uL
+# This just changes the scale but doesn't change any of the results
+p <- ggplot(data=dat_figures, 
+       aes(x=Size, y=Crithidia/(0.5), color=Size)) +
+  geom_boxplot(outlier.shape=NA) +
+  geom_point(size=1, position=position_dodge2(0.2)) +
+  facet_wrap("Colony", ncol=5) + 
+  labs(y = "Log no. Crithidia per uL", title = "Infection intensity by size") +
+  scale_colour_manual(values=caPalette) + 
+  theme(plot.title = element_text(face = "bold", size = 12)) +
+  scale_y_continuous(trans="log10") 
+
+
+p1 <- ggplot(data=dat_figures, aes(x=Size, y=Crithidia/0.5)) + geom_boxplot(aes(color=Size)) +
+  cowplot::theme_cowplot() + ylab("Log No. Crithidia per uL") + xlab("Colony Size") + labs(tag="(a)") +
+  scale_color_manual(values=caPalette) +
+  scale_y_log10() + geom_point(size = .75, color="grey", position = position_dodge2(0.4)) + 
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  theme(legend.position = "none")
+
+# Showing marginal cell measurements from all bees
+p2 <- ggplot(data = dat_figures.all, aes(x=Size, y=Marginal_Cell)) + 
+  geom_boxplot(aes(color=Size)) +
+  geom_point(size = .75, color="grey", position = position_dodge2(0.4)) + 
+  xlab("Colony Size") + ylab("Marginal Cell Length (mm)") + labs(tag="(c)") +
+  scale_color_manual(values=caPalette) +
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
+  cowplot::theme_cowplot() +
+  theme(legend.position = "none") 
+
+p3 <- ggplot(data=dat_figures, aes(x=Marginal_Cell, y=Crithidia/0.5)) + 
+  geom_point(aes(color=Size), size=.85) +
+  scale_color_manual(values = caPalette, labels = c("Small (15 bees)","Large (45 bees)")) +
+  labs(tag="(b)", color="Colony Size") +
+  geom_smooth(method="glm", color="black", method.args=list(family="nbinom2"), linewidth=.5) +
+  cowplot::theme_cowplot() +
+  ylab("No. Crithidia per uL") + xlab("Marginal Cell Size (mm)") + 
+  theme(legend.position = c(.1,.85)) 
+
+Figure4 <- ggarrange(p1, p3, p2, ncol=3)
+
+ggsave(Figure4, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/Fig4.tiff", 
+       width=12, height=5.5, bg="white")
+```
+
+#### Figure S4
+
+```{r FigureS4, echo=FALSE}
+
+# exclude colonies matched with contaminated control colonies
+# because we can't rule out that transmission was driven by contamination 
+# including: 10a, 1a, 3b, 5b, 6b, 7a, 7b, 7c, 8a, 8b, 8c, 9a  (n=12)
+
+# of /infected/ female bees, shows infection intensity in each small vs large microcolony
+FigureS4 <- ggplot(data=dat_figures, 
+                   aes(x=Size, y=Crithidia/0.5, color=Size)) +
+  geom_boxplot(outlier.shape=NA) +
+  geom_point(size=1, position=position_dodge2(0.2)) +
+  facet_wrap("Colony", ncol=5) + 
+  labs(y = "Log No. Crithidia per uL", x = NULL) +
+  scale_colour_manual(values=caPalette) + 
+  theme_bw() + 
+  theme(panel.grid = element_blank()) +
+  scale_y_continuous(trans="log10") 
+
+ggsave(FigureS4, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/FigS4.tiff", 
+       width=8, height=5.5, bg="white")
+
+
+```
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
