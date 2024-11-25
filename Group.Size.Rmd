@@ -185,7 +185,8 @@ summary(pairs(emm1), by=NULL, adjust = "bonferroni")
 
 fit <- survfit(Surv(Week,Status_dead) ~ Size + Crithidia, data = long_dat)
 p1 <- ggsurvplot(fit, color="Crithidia", linetype="Size", palette = caPalette, 
-           conf.int = TRUE, xlab = "Week", legend = "right")
+           conf.int = TRUE, xlab = "Week", legend = "right", 
+           legend.title="Treatment")
 
 # This doesn't work for some reason if I specify "FigureS1," 
 #   but works if I save default most recent plot, so that's what it's doing
@@ -195,11 +196,12 @@ ggsave(file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Corne
 # Boxplot showing proportion dead at end of experiment
 # Improved from first submission by adding jitter so points can be clearly differentiated 
 # Also changed y axis scale to allow negative jitter height and to show full scale, 0-1.0
-p2 <- ggplot(data=dat_3, aes(x=Size, y=Fraction.Dead, fill=Crithidia)) + 
-  geom_boxplot(outlier.shape=NA) + scale_fill_manual(values=caPalette) +
+p2 <- ggplot(data=dat_3, aes(x=Size, y=Fraction.Dead, color=Crithidia)) + 
+  geom_boxplot(outlier.shape=NA) + scale_color_manual(values=caPalette) +
   geom_point(position=position_jitterdodge(jitter.width = 0.3, jitter.height = 0.05)) + ylim(-0.05,1) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
-   labs(y="Proportion Dead", tag = "(b)") + labs(fill="Treatment") + 
+  xlab("Colony Size") +
+   labs(y="Proportion Dead", tag = "(b)") + labs(color="Treatment") + 
   cowplot::theme_cowplot() + theme(legend.position = c(0.65, 0.9)) 
 
 
@@ -226,7 +228,7 @@ FigureS1 <- ggplot(data=dat,
   geom_point(size=2, position=position_jitterdodge(jitter.width=0.1, jitter.height=0.05, dodge.width=0.5)) +
   geom_smooth(method="glm", method.args=list(family="binomial"),
               aes(x=Week, y=Fraction.Dead, group=interaction(Size, Crithidia), lty=Size, weight=Size_num), se=F) +
-  labs(y = "Proportion Dead", color="Treatment") + 
+  labs(y = "Proportion Dead", color="Treatment", linetype="Group Size") + 
   scale_colour_manual(values=caPalette) +
   scale_linetype(labels = c("Small (15 bees)", "Large (45 bees)")) +
   scale_shape_discrete(labels = c("Small (15 bees)", "Large (45 bees)")) +
@@ -396,48 +398,48 @@ summary(pairs(emm4), by = NULL, adjust = "bonferroni")
 # improved all figures from first submission by using jitterdodge to make points discernible 
 
 # total weight
-weight <- ggplot(dat, aes(x=Size, fill=Inoculated, y=Nest_Weight)) + 
+weight <- ggplot(dat, aes(x=Size, color=Inoculated, y=Nest_Weight)) + 
   geom_boxplot(outlier.shape = NA) + 
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + ylim(0,80) +
   labs(tag = "(a)") +
-  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+  scale_color_manual(values = caPalette, labels = c("Control", "Inoculated")) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
-  theme_light() + labs(y="Total\n Nest Weight (g)", x="Colony Size") + labs(fill="Treatment") + 
+  theme_light() + labs(y="Total\n Nest Weight (g)", x="Colony Size") + labs(color="Treatment") + 
   cowplot::theme_cowplot()
 
 # total reproductive output
-fitness <- ggplot(dat, aes(x=Size, fill=Inoculated, y=EggMale)) +
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+fitness <- ggplot(dat, aes(x=Size, color=Inoculated, y=EggMale)) +
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + 
-               labs(fill="Inoculated") + ylim(0,180) + labs(tag = "(b)") +
-  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+               labs(color="Inoculated") + ylim(0,180) + labs(tag = "(b)") +
+  scale_color_manual(values = caPalette, labels = c("Control", "Inoculated")) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
-  theme_light() + labs(y="Total\n No. Pupae + Males", x="Colony Size") + labs(fill="Treatment") + 
+  theme_light() + labs(y="Total\n No. Pupae + Males", x="Colony Size") + labs(color="Treatment") + 
   cowplot::theme_cowplot()
 
 # per capita weight
-percap_weight <- ggplot(dat, aes(x=Size, fill=Inoculated, y=Per_Capita_Weight)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+percap_weight <- ggplot(dat, aes(x=Size, color=Inoculated, y=Per_Capita_Weight)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + ylim(0,2.5)+
   labs(tag = "(c)") +
-  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+  scale_color_manual(values = caPalette, labels = c("Control", "Inoculated")) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
-  theme_light() + labs(y="Per Capita\n Nest Weight (g)", x="Colony Size") + labs(fill="Treatment") + 
+  theme_light() + labs(y="Per Capita\n Nest Weight (g)", x="Colony Size") + labs(color="Treatment") + 
   cowplot::theme_cowplot()
 
 # per capita reproductive output
-percap_eggmale <- ggplot(dat, aes(x=Size, fill=Inoculated, y=Per_Capita_EggMale)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+percap_eggmale <- ggplot(dat, aes(x=Size, color=Inoculated, y=Per_Capita_EggMale)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) + ylim(0,5.7) +
   labs(tag = "(d)") +
-  scale_fill_manual(values = caPalette, labels = c("Control", "Inoculated")) +
+  scale_color_manual(values = caPalette, labels = c("Control", "Inoculated")) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
-  theme_bw() + labs(y="Per Capita\n No. Pupae + Males", x="Colony Size") + labs(fill="Treatment") + cowplot::theme_cowplot()
+  theme_bw() + labs(y="Per Capita\n No. Pupae + Males", x="Colony Size") + labs(color="Treatment") + cowplot::theme_cowplot()
 
 
 Figure2 <- ggarrange(weight,fitness,percap_weight,percap_eggmale,nrow=2,ncol=2)
 
-ggsave(Figure2, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/Fig2.jpg", 
+ggsave(Figure2, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/Fig2.tiff", 
        width=10, height=8, bg="white")
 
 ```
@@ -550,58 +552,58 @@ summary(pairs(emm.pupae), by = NULL, adjust = "bonferroni")
 
 # Honeypots
 # Total number of honeypots
-honeypot <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Honey_Pots)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+honeypot <- ggplot(dat, aes(x=as.factor(Size), color=Inoculated, y=Honey_Pots)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette, labels = c("Control", "Inoculated")) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   theme_light() + labs(y="Total\n No. Honey Pots", x="Colony Size") + cowplot::theme_cowplot() + 
-  labs(tag = "(e)", fill="Treatment")
+  labs(tag = "(e)", color="Treatment")
 
 # Per capita number of honeypots
-honeypot_percap <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Per_Capita_HoneyPots)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+honeypot_percap <- ggplot(dat, aes(x=as.factor(Size), color=Inoculated, y=Per_Capita_HoneyPots)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette, labels = c("Control", "Inoculated")) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   theme_light() + labs(y="Per Capita\n No. Honey Pots", x="Colony Size") + cowplot::theme_cowplot() + 
-  labs(tag = "(f)", fill="Treatment")
+  labs(tag = "(f)", color="Treatment")
 
 ##############################################################################################
 
 # Pupae
 # Total number of pupae
-pupa <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Egg_Cells)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+pupa <- ggplot(dat, aes(x=as.factor(Size), color=Inoculated, y=Egg_Cells)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette, labels = c("Control", "Inoculated")) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   theme_light() + labs(y="Total\n No. Pupae", x="Colony Size") + cowplot::theme_cowplot() + 
-  labs(tag = "(a)", fill="Treatment")
+  labs(tag = "(a)", color="Treatment")
 
 # Per capita number of pupae
-pupa_percap <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Per_Capita_Pupae)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+pupa_percap <- ggplot(dat, aes(x=as.factor(Size), color=Inoculated, y=Per_Capita_Pupae)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette, labels = c("Control", "Inoculated")) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   theme_light() + labs(y="Per Capita\n No. Pupae", x="Colony Size") + cowplot::theme_cowplot() + 
-  labs(tag = "(b)", fill="Treatment")
+  labs(tag = "(b)", color="Treatment")
 
 ################################################################################################
 
 # Males
 # Total number of males
-male <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Males)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+male <- ggplot(dat, aes(x=as.factor(Size), color=Inoculated, y=Males)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette, labels = c("Control", "Inoculated")) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   theme_light() + labs(y="Total\n No. Males", x="Colony Size") + cowplot::theme_cowplot() + 
-  labs(tag = "(c)", fill="Treatment") 
+  labs(tag = "(c)", color="Treatment") 
 
 # Per capita number of males 
-male_percap <- ggplot(dat, aes(x=as.factor(Size), fill=Inoculated, y=Per_Capita_Males)) + 
-  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=caPalette, labels = c("Control", "Inoculated")) +
+male_percap <- ggplot(dat, aes(x=as.factor(Size), color=Inoculated, y=Per_Capita_Males)) + 
+  geom_boxplot(outlier.shape = NA) + scale_color_manual(values=caPalette, labels = c("Control", "Inoculated")) +
   geom_point(position=position_jitterdodge(jitter.width=.25, jitter.height = 0.25)) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   theme_light() + labs(y="Per Capita\n No. Males", x="Colony Size") + cowplot::theme_cowplot() + 
-  labs(tag = "(d)", fill="Treatment") 
+  labs(tag = "(d)", color="Treatment") 
 
 
 ####################################################################################
@@ -699,18 +701,19 @@ p1 <- ggplot(data=dat,
   geom_point(size=2, position=position_jitterdodge(jitter.width=0.2, jitter.height=0.05, dodge.width=0.25)) +
  geom_smooth(method="glm", method.args=list(family="binomial"),
               aes(x=Week, y=Infected_Prop, group=Size, weight=Screened), se=F) +
-  labs(y = "Proportion Infected", tag = "(a)") + 
-  scale_colour_manual(values=caPalette) + 
+  labs(y = "Proportion Infected", tag = "(a)", color="Group Size") + 
+  scale_colour_manual(values=caPalette, labels = c("Small \n(15 bees)","Large \n(45 bees)")) + 
   theme(plot.title = element_text(face = "bold", size = 12)) +
   cowplot::theme_cowplot()
 
 # Improved from first submission by adding jitter to make points clearly different
 # Had to change yaxis slightly so jitter height wouldn't be outside bounds
-p2 <- ggplot(data=dat_3, aes(x=Size, y=Infected_Prop, fill=Size)) + 
-  geom_boxplot(show.legend=FALSE, outlier.shape = NA) + scale_fill_manual(values=caPalette) +
+p2 <- ggplot(data=dat_3, aes(x=Size, y=Infected_Prop, color=Size)) + 
+  geom_boxplot(show.legend=FALSE, outlier.shape = NA) + scale_color_manual(values=caPalette) +
   geom_point(position=position_jitterdodge(jitter.width = 0.3, jitter.height = 0.05), show.legend = FALSE) + 
-  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) + ylim(-0.05,1.05) +
-  theme_light() + labs(y="Proportion Infected", tag = "(b)") + labs(fill="Size") +
+  scale_x_discrete(labels=c("Small\n (15 bees)\n", "Large\n (45 bees)")) + ylim(-0.05,1.05) +
+  xlab("Group Size") +
+  theme_light() + labs(y="Proportion Infected", tag = "(b)") + labs(color="Size") +
   cowplot::theme_cowplot()
 
 Figure3 <- ggarrange(p1,p2,nrow = 1,ncol=2)
@@ -734,8 +737,8 @@ FigureS3 <- ggplot(data=dat,
   geom_point(size=2) +
   geom_line(aes(group=Micro)) +
   facet_wrap("Colony", ncol=5) + 
-  labs(y = "Proportion Infected", x = "Week after inoculation") +
-  scale_colour_manual(values=caPalette) + 
+  labs(y = "Proportion Infected", x = "Week after inoculation", color="Group Size") +
+  scale_colour_manual(values=caPalette, labels = c("Small \n(15 bees)","Large \n(45 bees)")) + 
   theme_bw() + 
   theme(plot.title = element_text(face = "bold", size = 12), 
         panel.grid = element_blank())
@@ -851,7 +854,7 @@ p <- ggplot(data=dat_figures,
 
 
 p1 <- ggplot(data=dat_figures, aes(x=Size, y=Crithidia/0.5)) + geom_boxplot(aes(color=Size)) +
-  cowplot::theme_cowplot() + ylab("Log No. Crithidia per uL") + xlab("Colony Size") + labs(tag="(a)") +
+  cowplot::theme_cowplot() + ylab("Log No. Crithidia per uL") + xlab("Group Size") + labs(tag="(a)") +
   scale_color_manual(values=caPalette) +
   scale_y_log10() + geom_point(size = .75, color="grey", position = position_dodge2(0.4)) + 
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
@@ -861,7 +864,7 @@ p1 <- ggplot(data=dat_figures, aes(x=Size, y=Crithidia/0.5)) + geom_boxplot(aes(
 p2 <- ggplot(data = dat_figures.all, aes(x=Size, y=Marginal_Cell)) + 
   geom_boxplot(aes(color=Size)) +
   geom_point(size = .75, color="grey", position = position_dodge2(0.4)) + 
-  xlab("Colony Size") + ylab("Marginal Cell Length (mm)") + labs(tag="(c)") +
+  xlab("Group Size") + ylab("Marginal Cell Length (mm)") + labs(tag="(c)") +
   scale_color_manual(values=caPalette) +
   scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   cowplot::theme_cowplot() +
@@ -870,7 +873,7 @@ p2 <- ggplot(data = dat_figures.all, aes(x=Size, y=Marginal_Cell)) +
 p3 <- ggplot(data=dat_figures, aes(x=Marginal_Cell, y=Crithidia/0.5)) + 
   geom_point(aes(color=Size), size=.85) +
   scale_color_manual(values = caPalette, labels = c("Small (15 bees)","Large (45 bees)")) +
-  labs(tag="(b)", color="Colony Size") +
+  labs(tag="(b)", color="Group Size") +
   geom_smooth(method="glm", color="black", method.args=list(family="nbinom2"), linewidth=.5) +
   cowplot::theme_cowplot() +
   ylab("No. Crithidia per uL") + xlab("Marginal Cell Size (mm)") + 
@@ -898,8 +901,9 @@ FigureS4 <- ggplot(data=dat_figures,
   facet_wrap("Colony", ncol=5) + 
   labs(y = "Log No. Crithidia per uL", x = NULL) +
   scale_colour_manual(values=caPalette) + 
+  scale_x_discrete(labels=c("Small\n (15 bees)", "Large\n (45 bees)")) +
   theme_bw() + 
-  theme(panel.grid = element_blank()) +
+  theme(panel.grid = element_blank(), legend.position = "none") +
   scale_y_continuous(trans="log10") 
 
 ggsave(FigureS4, file = "/Users/leah/Library/CloudStorage/OneDrive-CornellUniversity/Cornell/Density_Project/FIGURES/FigS4.tiff", 
